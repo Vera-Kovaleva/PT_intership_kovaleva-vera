@@ -22,6 +22,8 @@ const (
 	RedisTimeout     = 200 * time.Millisecond
 	RedisTTL         = 24 * time.Hour
 	RedisNegativeTTL = 1 * time.Minute
+
+	PingTimeout = 1 * time.Second
 )
 
 type Config struct {

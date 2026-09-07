@@ -6,8 +6,9 @@ import (
 )
 
 const (
-	CodeLength = 6
-	alphabet   = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	CodeLength  = 6
+	alphabet    = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	maxAttempts = 3
 )
 
 var reservedCodes = map[string]bool{

@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"net/http"
 	"os/signal"
 	"syscall"
 	"urlshortener/internal/config"
+	"urlshortener/internal/httpapi"
+	"urlshortener/internal/repository"
+	"urlshortener/internal/service"
 )
 
 func main() {
@@ -17,16 +19,13 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-	})
+	repo := repository.NewMemory()
+	svc := service.New(repo)
+	h := httpapi.NewHandler(svc, cfg.BaseURL)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.ServerPort,
-		Handler:           mux,
+		Handler:           h.Routes(),
 		ReadHeaderTimeout: config.ReadHeaderTimeout,
 		ReadTimeout:       config.ReadTimeout,
 		WriteTimeout:      config.WriteTimeout,
