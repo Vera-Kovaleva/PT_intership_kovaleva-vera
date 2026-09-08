@@ -21,11 +21,13 @@ const (
 	codeUnavailable      = "service_unavailable"
 )
 
+type errorBody struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
 type errorResponse struct {
-	Error struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
-	} `json:"error"`
+	Error errorBody `json:"error"`
 }
 
 func (h *Handler) respondError(w http.ResponseWriter, r *http.Request, err error) {
@@ -35,9 +37,17 @@ func (h *Handler) respondError(w http.ResponseWriter, r *http.Request, err error
 		message = "internal error"
 	)
 
-	var unavailableErr *repository.UnavailableError
+	var (
+		apiErr         *apiError
+		unavailableErr *repository.UnavailableError
+	)
 
 	switch {
+	case errors.As(err, &apiErr):
+		status = apiErr.status
+		code = apiErr.code
+		message = apiErr.message
+
 	case errors.Is(err, service.ErrInvalidURL):
 		status = http.StatusUnprocessableEntity
 		code = codeInvalidURL
@@ -54,25 +64,13 @@ func (h *Handler) respondError(w http.ResponseWriter, r *http.Request, err error
 		message = "service temporarily unavailable"
 	}
 
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(errorResponse{
-		Error: struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		}{Code: code, Message: message},
-	})
+	h.sendJSONError(w, status, code, message)
 }
 
 func (h *Handler) sendJSONError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(errorResponse{
-		Error: struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		}{Code: code, Message: message},
-	})
+	_ = json.NewEncoder(w).Encode(errorResponse{Error: errorBody{Code: code, Message: message}})
 }
 
 type apiError struct {
@@ -84,11 +82,10 @@ type apiError struct {
 func requireJSON(r *http.Request) error {
 	ct := r.Header.Get("Content-Type")
 	if ct == "" {
-		return nil // Разрешаем curl без заголовков для удобства
+		return nil
 	}
 	mediaType, _, err := mime.ParseMediaType(ct)
 	if err != nil || mediaType != "application/json" {
-		// Возвращаем кастомную ошибку, которую h.respondError превратит в 415
 		return &apiError{http.StatusUnsupportedMediaType, codeUnsupportedType, "content-type must be application/json"}
 	}
 	return nil

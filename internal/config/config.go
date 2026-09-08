@@ -43,6 +43,8 @@ func Load() (Config, error) {
 	c.DBConnection = os.Getenv("DB_CONNECTION")
 	c.RedisAddress = os.Getenv("REDIS_ADDRESS")
 
+	c.BaseURL = strings.TrimRight(c.BaseURL, "/")
+
 	var missing []string
 	if c.BaseURL == "" {
 		missing = append(missing, "BASE_URL")

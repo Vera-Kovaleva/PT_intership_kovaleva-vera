@@ -10,16 +10,16 @@ import (
 	"urlshortener/internal/service"
 )
 
-type Shortner interface {
+type Shortener interface {
 	Shorten(context.Context, string) (string, error)
 	Resolve(context.Context, string) (string, error)
 	Ping(context.Context) error
 }
 
-var _ Shortner = (*service.Service)(nil)
+var _ Shortener = (*service.Service)(nil)
 
 type Handler struct {
-	srv     Shortner
+	srv     Shortener
 	log     *slog.Logger
 	baseURL string
 }
@@ -33,7 +33,7 @@ func (h *Handler) Routes() http.Handler {
 	return mux
 }
 
-func NewHandler(srv Shortner, baseURL string) *Handler {
+func NewHandler(srv Shortener, baseURL string) *Handler {
 	return &Handler{srv: srv, baseURL: baseURL}
 }
 
@@ -41,12 +41,14 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), config.PingTimeout)
 	defer cancel()
 
+	status, httpStatus := "ok", http.StatusOK
 	if err := h.srv.Ping(ctx); err != nil {
-		h.respondError(w, r, err)
-		return
+		status, httpStatus = "degraded", http.StatusServiceUnavailable
 	}
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	w.WriteHeader(httpStatus)
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": status})
 }
 
 func (h *Handler) Redirect(w http.ResponseWriter, r *http.Request) {
@@ -72,6 +74,12 @@ func (h *Handler) Shorten(w http.ResponseWriter, r *http.Request) {
 
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
+		var typeErr *json.UnmarshalTypeError
+		if errors.As(err, &typeErr) && typeErr.Field == "url" {
+			h.sendJSONError(w, http.StatusUnprocessableEntity, codeInvalidURL, "url must be a string")
+			return
+		}
+
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
 			h.sendJSONError(w, http.StatusRequestEntityTooLarge, codePayloadTooLarge, "request body too large")
@@ -115,8 +123,8 @@ var knownPaths = map[string]string{
 func (h *Handler) fallback(w http.ResponseWriter, r *http.Request) {
 	if allowed, ok := knownPaths[r.URL.Path]; ok {
 		w.Header().Set("Allow", allowed)
-		h.sendJSONError(w, 405, codeMethodNotAllowed, "method not allowed for this path")
+		h.sendJSONError(w, http.StatusMethodNotAllowed, codeMethodNotAllowed, "method not allowed for this path")
 		return
 	}
-	h.sendJSONError(w, 404, codeNotFound, "not found")
+	h.sendJSONError(w, http.StatusNotFound, codeNotFound, "not found")
 }
