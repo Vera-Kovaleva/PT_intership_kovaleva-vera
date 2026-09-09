@@ -12,7 +12,7 @@ import (
 
 	"urlshortener/internal/cache"
 	"urlshortener/internal/config"
-	"urlshortener/internal/httpapi"
+	"urlshortener/internal/handler"
 	"urlshortener/internal/repository"
 	"urlshortener/internal/service"
 	"urlshortener/migrations"
@@ -61,7 +61,7 @@ func run() error {
 		logger.Warn("running without cache", "reason", "REDIS_ADDRESS is not set")
 	}
 	svc := service.New(repo, linksCache, logger)
-	h := httpapi.NewHandler(svc, cfg.BaseURL, logger)
+	h := handler.NewHandler(svc, cfg.BaseURL, logger)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.ServerPort,
@@ -110,7 +110,7 @@ type contextHandler struct {
 }
 
 func (h contextHandler) Handle(ctx context.Context, r slog.Record) error {
-	if id := httpapi.RequestIDFrom(ctx); id != "" {
+	if id := handler.RequestIDFrom(ctx); id != "" {
 		r.AddAttrs(slog.String("request_id", id))
 	}
 	return h.Handler.Handle(ctx, r)

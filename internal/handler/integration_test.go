@@ -1,6 +1,6 @@
 //go:build integration
 
-package httpapi
+package handler
 
 import (
 	"context"

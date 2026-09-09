@@ -58,6 +58,7 @@ url_hash BYTEA GENERATED ALWAYS AS (sha256(convert_to(original_url,'UTF8'))) STO
 - PostgreSQL — хранение ссылок
 - Redis — кэш перед базой
 - pgx/pgxpool — драйвер и пул соединений
+- go-redis — клиент Redis
 - golang-migrate — миграции, применяются самим сервисом при старте
 - Docker + docker compose — запуск
 - golangci-lint — линтер
@@ -361,25 +362,19 @@ Handler принимает код → Service смотрит в Redis
 
 ## Конфигурация
 
+Через окружение задаётся только то, что меняется от развёртывания к развёртыванию:
+
 ```env
-SERVER_PORT=8080
-SERVER_READ_HEADER_TIMEOUT=5s
-SERVER_READ_TIMEOUT=5s
-SERVER_WRITE_TIMEOUT=5s
-SERVER_IDLE_TIMEOUT=60s
-SERVER_SHUTDOWN_TIMEOUT=10s
-SERVER_MAX_BODY_BYTES=16384
-REQUEST_TIMEOUT=3s
-DB_CONNECTION=postgres://user:password@db:5432/urlshortener?sslmode=disable&pool_max_conns=10
-DB_QUERY_TIMEOUT=2s
-REDIS_ADDRESS=redis:6379
-REDIS_TIMEOUT=200ms
-REDIS_TTL=24h
-REDIS_NEGATIVE_TTL=1m
-MAX_URL_LENGTH=2048
 BASE_URL=http://localhost:8080
+DB_CONNECTION=postgres://user:password@db:5432/urlshortener?sslmode=disable&pool_max_conns=10
+REDIS_ADDRESS=redis:6379
+SERVER_PORT=8080
 LOG_LEVEL=info
 ```
+
+`BASE_URL` и `DB_CONNECTION` обязательны — без них сервис не стартует. Остальные имеют значения по умолчанию; пустой `REDIS_ADDRESS` означает работу без кэша.
+
+**Таймауты, лимиты размеров и TTL кэша заданы константами в коде.** Их значения связаны иерархией (см. «Таймауты»), и возможность переопределить их снаружи позволила бы эту иерархию сломать — например, получить сервис, который рвёт соединение раньше, чем успевает сформировать ответ об ошибке. Это решения дизайна, а не настройки развёртывания.
 
 ## Безопасность
 
@@ -451,9 +446,12 @@ docker compose up
 migrations/
   0001_init.up.sql
   0001_init.down.sql
+  embed.go
 ```
 
 Имена в формате `golang-migrate`. `.down.sql` пишу всегда, даже если откатывать не планирую.
+
+`embed.go` встраивает `.sql` в бинарник через `//go:embed` и держит функцию применения миграций. Без встраивания папку пришлось бы копировать в финальный образ и следить, чтобы путь совпадал с рабочим каталогом контейнера, — три места вместо одного.
 
 Накатывает миграции сам сервис при старте, до начала прослушивания порта. Вариант с `docker-entrypoint-initdb.d` не выбрала: он срабатывает один раз при создании пустой базы, и после правки схемы у проверяющего осталась бы старая.
 
