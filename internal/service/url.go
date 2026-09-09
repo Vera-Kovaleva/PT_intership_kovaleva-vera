@@ -12,12 +12,12 @@ var allowedSchemes = map[string]bool{"http": true, "https": true}
 
 var ErrInvalidURL = errors.New("invalid url")
 
-type ValidationError struct{ Public string }
+type validationError struct{ Public string }
 
-func (e *ValidationError) Error() string { return e.Public }
-func (e *ValidationError) Unwrap() error { return ErrInvalidURL }
+func (e *validationError) Error() string { return e.Public }
+func (e *validationError) Unwrap() error { return ErrInvalidURL }
 
-func InvalidURL(public string) error { return &ValidationError{Public: public} }
+func invalidURL(public string) error { return &validationError{Public: public} }
 
 func normalizeAndHash(raw string) (string, []byte, error) {
 	u, err := validate(raw)
@@ -35,28 +35,36 @@ func normalizeAndHash(raw string) (string, []byte, error) {
 
 func validate(raw string) (*url.URL, error) {
 	if len(raw) == 0 {
-		return nil, InvalidURL("url must not be empty")
+		return nil, invalidURL("url must not be empty")
 	}
 	if len(raw) > config.MaxURLLength {
-		return nil, InvalidURL("url must be at most 2048 bytes")
+		return nil, invalidURL("url must be at most 2048 bytes")
 	}
 
 	u, err := url.Parse(raw)
 	if err != nil {
-		return nil, InvalidURL("url could not be parsed")
+		return nil, invalidURL("url could not be parsed")
 	}
 	if !u.IsAbs() {
-		return nil, InvalidURL("url must be an absolute http or https URL")
+		return nil, invalidURL("url must be an absolute http or https URL")
 	}
 	if !allowedSchemes[strings.ToLower(u.Scheme)] {
-		return nil, InvalidURL("url must be an absolute http or https URL")
+		return nil, invalidURL("url must be an absolute http or https URL")
 	}
 	if u.Host == "" {
-		return nil, InvalidURL("url must have a non-empty host")
+		return nil, invalidURL("url must have a non-empty host")
 	}
 	if u.User != nil {
-		return nil, InvalidURL("url must not contain a username or password")
+		return nil, invalidURL("url must not contain a username or password")
 	}
 
 	return u, nil
+}
+
+func targetHost(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	return u.Host
 }

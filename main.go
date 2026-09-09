@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"fmt"
+	"log/slog"
 	"net/http"
+	"os"
 	"os/signal"
 	"syscall"
 
@@ -22,54 +24,77 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		slog.Error("startup failed", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("config: %v", err)
+		return fmt.Errorf("config: %w", err)
 	}
+
+	logger := newLogger(cfg.LogLevel)
+	slog.SetDefault(logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	if err := applyMigrations(cfg.DBConnection); err != nil {
-		log.Fatalf("migrations: %v", err)
+		return fmt.Errorf("migrations: %w", err)
 	}
+	logger.Info("migrations applied")
 
 	pool, err := pgxpool.New(ctx, cfg.DBConnection)
 	if err != nil {
-		log.Fatalf("database pool: %v", err)
+		return fmt.Errorf("database pool: %w", err)
 	}
 	defer pool.Close()
 
 	repo := repository.NewPostgres(pool)
-	svc := service.New(repo)
-	h := httpapi.NewHandler(svc, cfg.BaseURL)
+	svc := service.New(repo, logger)
+	h := httpapi.NewHandler(svc, cfg.BaseURL, logger)
+	routes := httpapi.Chain(h.Routes(),
+		httpapi.RequestID,
+		httpapi.AccessLog(logger),
+		httpapi.Recover(logger),
+		httpapi.Timeout(config.RequestTimeout),
+	)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.ServerPort,
-		Handler:           h.Routes(),
+		Handler:           routes,
 		ReadHeaderTimeout: config.ReadHeaderTimeout,
 		ReadTimeout:       config.ReadTimeout,
 		WriteTimeout:      config.WriteTimeout,
 		IdleTimeout:       config.IdleTimeout,
 	}
 
+	errCh := make(chan error, 1)
 	go func() {
-		log.Printf("listening and serve on: %v", srv.Addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("listening and serve error: %v", err)
+		logger.Info("server started", "addr", srv.Addr)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
 		}
 	}()
 
-	<-ctx.Done()
-	log.Println("shutting down server...")
+	select {
+	case err := <-errCh:
+		return fmt.Errorf("server: %w", err)
+	case <-ctx.Done():
+		logger.Info("shutdown signal received")
+	}
 
 	shutDownCtx, cancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)
 	defer cancel()
 
 	if err := srv.Shutdown(shutDownCtx); err != nil {
-		log.Fatalf("shutdown error: %v", err)
+		return fmt.Errorf("graceful shutdown: %w", err)
 	}
-	log.Println("server stopped")
+	logger.Info("server stopped")
+	return nil
 }
 
 func applyMigrations(dsn string) error {
@@ -83,7 +108,7 @@ func applyMigrations(dsn string) error {
 		return err
 	}
 	db := stdlib.OpenDB(*poolCfg.ConnConfig)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	driver, err := postgres.WithInstance(db, &postgres.Config{})
 	if err != nil {
@@ -98,4 +123,23 @@ func applyMigrations(dsn string) error {
 		return err
 	}
 	return nil
+}
+
+func newLogger(level string) *slog.Logger {
+	var l slog.Level
+	if err := l.UnmarshalText([]byte(level)); err != nil {
+		l = slog.LevelInfo
+	}
+	return slog.New(contextHandler{slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: l})})
+}
+
+type contextHandler struct {
+	slog.Handler
+}
+
+func (h contextHandler) Handle(ctx context.Context, r slog.Record) error {
+	if id := httpapi.RequestIDFrom(ctx); id != "" {
+		r.AddAttrs(slog.String("request_id", id))
+	}
+	return h.Handler.Handle(ctx, r)
 }

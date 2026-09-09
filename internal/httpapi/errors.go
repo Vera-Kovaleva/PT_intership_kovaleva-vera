@@ -31,6 +31,13 @@ type errorResponse struct {
 }
 
 func (h *Handler) respondError(w http.ResponseWriter, r *http.Request, err error) {
+	ctx := r.Context()
+
+	if errors.Is(err, context.Canceled) {
+		h.logger.InfoContext(ctx, "client gone")
+		return
+	}
+
 	var (
 		status  = http.StatusInternalServerError
 		code    = codeInternal
@@ -64,10 +71,14 @@ func (h *Handler) respondError(w http.ResponseWriter, r *http.Request, err error
 		message = "service temporarily unavailable"
 	}
 
-	h.sendJSONError(w, status, code, message)
+	if status >= http.StatusInternalServerError {
+		h.logger.ErrorContext(ctx, "request failed", "error", err, "status", status)
+	}
+
+	sendJSONError(w, status, code, message)
 }
 
-func (h *Handler) sendJSONError(w http.ResponseWriter, status int, code, message string) {
+func sendJSONError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(errorResponse{Error: errorBody{Code: code, Message: message}})

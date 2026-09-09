@@ -20,8 +20,8 @@ var _ Shortener = (*service.Service)(nil)
 
 type Handler struct {
 	srv     Shortener
-	log     *slog.Logger
 	baseURL string
+	logger  *slog.Logger
 }
 
 func (h *Handler) Routes() http.Handler {
@@ -33,8 +33,8 @@ func (h *Handler) Routes() http.Handler {
 	return mux
 }
 
-func NewHandler(srv Shortener, baseURL string) *Handler {
-	return &Handler{srv: srv, baseURL: baseURL}
+func NewHandler(srv Shortener, baseURL string, logger *slog.Logger) *Handler {
+	return &Handler{srv: srv, baseURL: baseURL, logger: logger}
 }
 
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
@@ -43,6 +43,7 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 
 	status, httpStatus := "ok", http.StatusOK
 	if err := h.srv.Ping(ctx); err != nil {
+		h.logger.ErrorContext(ctx, "health check failed", "error", err)
 		status, httpStatus = "degraded", http.StatusServiceUnavailable
 	}
 
@@ -76,21 +77,21 @@ func (h *Handler) Shorten(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var typeErr *json.UnmarshalTypeError
 		if errors.As(err, &typeErr) && typeErr.Field == "url" {
-			h.sendJSONError(w, http.StatusUnprocessableEntity, codeInvalidURL, "url must be a string")
+			sendJSONError(w, http.StatusUnprocessableEntity, codeInvalidURL, "url must be a string")
 			return
 		}
 
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
-			h.sendJSONError(w, http.StatusRequestEntityTooLarge, codePayloadTooLarge, "request body too large")
+			sendJSONError(w, http.StatusRequestEntityTooLarge, codePayloadTooLarge, "request body too large")
 			return
 		}
-		h.sendJSONError(w, http.StatusBadRequest, codeMalformedJSON, "invalid json format")
+		sendJSONError(w, http.StatusBadRequest, codeMalformedJSON, "invalid json format")
 		return
 	}
 
 	if req.URL == nil {
-		h.sendJSONError(w, http.StatusUnprocessableEntity, codeInvalidURL, "url field is required")
+		sendJSONError(w, http.StatusUnprocessableEntity, codeInvalidURL, "url field is required")
 		return
 	}
 
@@ -123,8 +124,8 @@ var knownPaths = map[string]string{
 func (h *Handler) fallback(w http.ResponseWriter, r *http.Request) {
 	if allowed, ok := knownPaths[r.URL.Path]; ok {
 		w.Header().Set("Allow", allowed)
-		h.sendJSONError(w, http.StatusMethodNotAllowed, codeMethodNotAllowed, "method not allowed for this path")
+		sendJSONError(w, http.StatusMethodNotAllowed, codeMethodNotAllowed, "method not allowed for this path")
 		return
 	}
-	h.sendJSONError(w, http.StatusNotFound, codeNotFound, "not found")
+	sendJSONError(w, http.StatusNotFound, codeNotFound, "not found")
 }
