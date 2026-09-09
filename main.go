@@ -17,11 +17,7 @@ import (
 	"urlshortener/internal/service"
 	"urlshortener/migrations"
 
-	"github.com/golang-migrate/migrate/v4"
-	"github.com/golang-migrate/migrate/v4/database/postgres"
-	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -44,7 +40,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if err := applyMigrations(cfg.DBConnection); err != nil {
+	if err := migrations.Apply(cfg.DBConnection); err != nil {
 		return fmt.Errorf("migrations: %w", err)
 	}
 	logger.Info("migrations applied")
@@ -66,16 +62,10 @@ func run() error {
 	}
 	svc := service.New(repo, linksCache, logger)
 	h := httpapi.NewHandler(svc, cfg.BaseURL, logger)
-	routes := httpapi.Chain(h.Routes(),
-		httpapi.RequestID,
-		httpapi.AccessLog(logger),
-		httpapi.Recover(logger),
-		httpapi.Timeout(config.RequestTimeout),
-	)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.ServerPort,
-		Handler:           routes,
+		Handler:           h.Handler(logger, config.ReadTimeout),
 		ReadHeaderTimeout: config.ReadHeaderTimeout,
 		ReadTimeout:       config.ReadTimeout,
 		WriteTimeout:      config.WriteTimeout,
@@ -104,34 +94,6 @@ func run() error {
 		return fmt.Errorf("graceful shutdown: %w", err)
 	}
 	logger.Info("server stopped")
-	return nil
-}
-
-func applyMigrations(dsn string) error {
-	source, err := iofs.New(migrations.FS, ".")
-	if err != nil {
-		return err
-	}
-
-	poolCfg, err := pgxpool.ParseConfig(dsn)
-	if err != nil {
-		return err
-	}
-	db := stdlib.OpenDB(*poolCfg.ConnConfig)
-	defer func() { _ = db.Close() }()
-
-	driver, err := postgres.WithInstance(db, &postgres.Config{})
-	if err != nil {
-		return err
-	}
-
-	m, err := migrate.NewWithInstance("iofs", source, "postgres", driver)
-	if err != nil {
-		return err
-	}
-	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		return err
-	}
 	return nil
 }
 

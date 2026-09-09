@@ -97,3 +97,12 @@ func RequestIDFrom(ctx context.Context) string {
 	id, _ := ctx.Value(requestIDKey).(string)
 	return id
 }
+
+func (h *Handler) Handler(logger *slog.Logger, timeout time.Duration) http.Handler {
+	return Chain(h.Routes(),
+		RequestID,
+		AccessLog(logger),
+		Recover(logger),
+		Timeout(timeout),
+	)
+}

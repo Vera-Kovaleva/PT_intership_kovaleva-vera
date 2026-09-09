@@ -3,7 +3,9 @@ package service
 import (
 	"encoding/hex"
 	"errors"
+	"strings"
 	"testing"
+	"urlshortener/internal/config"
 )
 
 func TestHashIsStable(t *testing.T) {
@@ -25,5 +27,27 @@ func TestEmptyURL(t *testing.T) {
 	}
 	if !errors.Is(err, ErrInvalidURL) {
 		t.Fatalf("errors.Is(err, ErrInvalidURL) = false, err = %v", err)
+	}
+}
+
+func TestValidateRejectsBadURLs(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+	}{
+		{"rejects javascript scheme", "javascript:alert(1)"},
+		{"rejects javascript scheme disguised as host", "javascript://example.com/%0aalert(1)"},
+		{"rejects ftp scheme", "ftp://example.com"},
+		{"rejects relative path", "/foo"},
+		{"rejects url with userinfo", "https://a.com@evil.example"},
+		{"rejects url over the length limit", "https://example.com/" + strings.Repeat("a", config.MaxURLLength)},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, _, err := normalizeAndHash(c.raw); !errors.Is(err, ErrInvalidURL) {
+				t.Fatalf("error: got %v, want %v", err, ErrInvalidURL)
+			}
+		})
 	}
 }
