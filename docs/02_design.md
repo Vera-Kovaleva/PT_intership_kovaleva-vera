@@ -148,10 +148,13 @@ health, status, static, assets, public, robots, search, config, signup, logout
 Поэтому я регистрирую catch-all `/`, который отвечает в общем формате:
 
 ```
-путь /shorten  → 405, Allow: POST
-путь /health   → 405, Allow: GET
-иначе          → 404 not_found
+путь /shorten            → 405, Allow: POST
+путь /health             → 405, Allow: GET
+путь вида короткого кода → 405, Allow: GET
+иначе                    → 404 not_found
 ```
+
+Проверку формы кода приходится писать руками: `/{code}` — шаблон, а не литерал, в catch-all путь приходит обычной строкой, и отличить обращение к коду от чужого пути нечем. Предикат тот же, что и на чтении.
 
 Плата — автоматический `405` подавляется, и заголовок `Allow` я формирую сама. Путей мало, поэтому это десяток строк.
 
@@ -423,7 +426,7 @@ docker compose up
 - `go.mod` и `go.sum` отдельным слоем до исходников — ради кэша зависимостей
 - `CGO_ENABLED=0` — иначе бинарник не запустится в alpine
 - Финальный образ `alpine`: в нём есть `wget` для healthcheck, в `scratch` и distroless его нет
-- `USER nobody` — права root сервису не нужны
+- Непривилегированный пользователь `app` с фиксированным UID 10001 — права root сервису не нужны
 - Миграции в образ не копирую: SQL зашит в бинарник через `embed.FS`
 - `.dockerignore` с `.git` и `.env`, чтобы пароль базы не попал в образ
 
@@ -435,6 +438,7 @@ docker compose up
 - Healthcheck `pg_isready` у `db` и `depends_on: condition: service_healthy` у `app`: без этого сервис стартует раньше базы и уходит в перезапуск
 - Именованный том под данные Postgres — иначе ссылки теряются при `docker compose down`
 - Наружу публикую порт `8080` и порт базы: второй нужен интеграционным тестам
+- Healthcheck у `app` — `wget` на `/health`: в `docker compose ps` видно, поднялся сервис или уходит в перезапуск
 - `redis:7-alpine` с healthcheck `redis-cli ping`; том ему не нужен — кэш переживать перезапуск не обязан
 - `depends_on` на `redis` ставлю без `service_healthy`: сервис работает и без кэша
 - `restart: unless-stopped` у всех трёх

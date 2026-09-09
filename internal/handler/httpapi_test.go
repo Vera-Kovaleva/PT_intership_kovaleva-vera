@@ -69,18 +69,33 @@ func TestShortenReturnsUnprocessableForInvalidURL(t *testing.T) {
 }
 
 func TestRejectsWrongMethodWithAllow(t *testing.T) {
-	req := httptest.NewRequest(http.MethodDelete, "/shorten", nil)
-	rec := httptest.NewRecorder()
-
-	stub := stubService{}
-
-	newTestHandler(t, stub).ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("status: got %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	cases := []struct {
+		name      string
+		method    string
+		path      string
+		wantAllow string
+	}{
+		{"rejects delete on shorten", http.MethodDelete, "/shorten", http.MethodPost},
+		{"rejects put on shorten", http.MethodPut, "/shorten", http.MethodPost},
+		{"rejects post on health", http.MethodPost, "/health", http.MethodGet},
+		{"rejects post on short code", http.MethodPost, "/abc123", http.MethodGet},
+		{"rejects delete on short code", http.MethodDelete, "/abc123", http.MethodGet},
 	}
-	if got := rec.Header().Get("Allow"); got != http.MethodPost {
-		t.Fatalf("Allow: got %q, want %q", got, http.MethodPost)
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			rec := httptest.NewRecorder()
+
+			newTestHandler(t, stubService{}).ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusMethodNotAllowed {
+				t.Fatalf("status: got %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+			}
+			if got := rec.Header().Get("Allow"); got != tc.wantAllow {
+				t.Fatalf("Allow: got %q, want %q", got, tc.wantAllow)
+			}
+		})
 	}
 }
 

@@ -2,6 +2,12 @@ services:
   app:
     build: .
     env_file: .env
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:$${SERVER_PORT}/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     depends_on:
       db:
         condition: service_healthy

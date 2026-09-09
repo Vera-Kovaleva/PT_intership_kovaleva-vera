@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"urlshortener/internal/config"
 	"urlshortener/internal/service"
 )
@@ -127,5 +128,11 @@ func (h *Handler) fallback(w http.ResponseWriter, r *http.Request) {
 		sendJSONError(w, http.StatusMethodNotAllowed, codeMethodNotAllowed, "method not allowed for this path")
 		return
 	}
+	if code := strings.TrimPrefix(r.URL.Path, "/"); service.IsWellFormedCode(code) {
+		w.Header().Set("Allow", http.MethodGet)
+		sendJSONError(w, http.StatusMethodNotAllowed, codeMethodNotAllowed, "method not allowed for this path")
+		return
+	}
+
 	sendJSONError(w, http.StatusNotFound, codeNotFound, "not found")
 }

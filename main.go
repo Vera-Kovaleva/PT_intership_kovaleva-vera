@@ -65,7 +65,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.ServerPort,
-		Handler:           h.Handler(logger, config.ReadTimeout),
+		Handler:           h.Handler(logger, config.RequestTimeout),
 		ReadHeaderTimeout: config.ReadHeaderTimeout,
 		ReadTimeout:       config.ReadTimeout,
 		WriteTimeout:      config.WriteTimeout,
