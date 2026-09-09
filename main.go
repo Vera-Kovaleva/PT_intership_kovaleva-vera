@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"urlshortener/internal/cache"
 	"urlshortener/internal/config"
 	"urlshortener/internal/httpapi"
 	"urlshortener/internal/repository"
@@ -21,6 +22,7 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -54,7 +56,15 @@ func run() error {
 	defer pool.Close()
 
 	repo := repository.NewPostgres(pool)
-	svc := service.New(repo, logger)
+	var linksCache cache.Cache = cache.Noop{}
+	if cfg.RedisAddress != "" {
+		client := redis.NewClient(&redis.Options{Addr: cfg.RedisAddress})
+		defer func() { _ = client.Close() }()
+		linksCache = cache.NewRedis(client, logger)
+	} else {
+		logger.Warn("running without cache", "reason", "REDIS_ADDRESS is not set")
+	}
+	svc := service.New(repo, linksCache, logger)
 	h := httpapi.NewHandler(svc, cfg.BaseURL, logger)
 	routes := httpapi.Chain(h.Routes(),
 		httpapi.RequestID,
